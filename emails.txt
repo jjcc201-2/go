@@ -13,3 +13,16 @@
 	"to" : "tom@gmail.com",
 	"message" : "Goodbye Tom"
 }
+
+
+
+{
+	"from" : "alice@gmail.com",
+	"to" : "steven@gmail.com",
+	"message" : "Steven, what is up"
+}
+{
+	"from" : "alice@gmail.com",
+	"to" : "michael@gmail.com",
+	"message" : "beunos dias"
+}

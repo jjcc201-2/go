@@ -6,6 +6,7 @@ import (
 	"log"      // Simple logger
 	"net/http" // Provides HTTP client and server implementations. GET, POST, HEAD and PostForm
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux" // A request router and dispatcher for matching incoming requests against a list of registered routes
 )
 
@@ -15,9 +16,9 @@ type Email struct { // Type is used to refer to the struct afterwards
 	Message string
 }
 
-type Emails []Email
+//type Emails []Email
 
-// type Emails map[string]Email
+type Emails map[string]Email
 
 var emails map[string]Email // ONE EMAIL PER USER
 
@@ -36,10 +37,11 @@ func List(w http.ResponseWriter, r *http.Request) {
 	if emails, ok := outbox[user]; ok {
 
 		// Obtain all the messages in the outbox of a specific user
-		var emailMessages = make(map[int]string)
-		for key, value := range emails {
-			emailMessages[key] = value.Message
+		var emailMessages = make(map[string]string)
+		for emailUuid, emailBody := range emails {
+			emailMessages[emailUuid] = emailBody.Message
 		}
+
 		w.WriteHeader(http.StatusOK)
 		if enc, err := json.Marshal(emailMessages); err == nil { // If you have an error converting it to JSON
 			w.Write([]byte(enc))
@@ -51,6 +53,7 @@ func List(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+/*
 // Create email and add it to the user's outbox
 func Create(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -63,6 +66,33 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		outbox[user] = append(outbox[user], email)
 	} else {
 		w.WriteHeader(http.StatusBadRequest) // If there is an error with the JSON, send back a bad status request
+	}
+}
+*/
+// Create email and add it to the user's outbox
+func Create2(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	user := vars["user"]
+	decoder := json.NewDecoder(r.Body)
+	var email Email
+
+	// UUID to uniquely identify an email
+	if uuid, err := uuid.NewUUID(); err == nil {
+		if err := decoder.Decode(&email); err == nil { //If no errors in decoding the message into the email object
+
+			// If user has not been created, create them
+			if outbox[user] == nil {
+				outbox[user] = make(map[string]Email)
+			}
+
+			w.WriteHeader(http.StatusCreated)
+			outbox[user][uuid.String()] = email
+		} else {
+			w.WriteHeader(http.StatusBadRequest) // If there is an error with the JSON, send back a bad status request
+		}
+	} else {
+		// For when we cannot make the bucket
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
 
@@ -81,7 +111,7 @@ func handleRequests() {
 	router.HandleFunc("/outbox/{user}/{uuid}", Delete).Methods("DELETE")
 	router.HandleFunc("/outbox/{user}/{uuid}", Read).Methods("GET")
 	router.HandleFunc("/outbox/{user}", List).Methods("GET")
-	router.HandleFunc("/outbox/{user}", Create).Methods("POST")
+	router.HandleFunc("/outbox/{user}", Create2).Methods("POST")
 	log.Fatal(http.ListenAndServe(":4000", router))
 }
 
