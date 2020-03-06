@@ -1,0 +1,15 @@
+{
+	"from" : "bob@gmail.com",
+	"to" : "alice@gmail.com",
+	"message" : "Hi Alice!"
+}
+{
+	"from" : "bob@gmail.com",
+	"to" : "jim@gmail.com",
+	"message" : "Go away Jim"
+}
+{
+	"from" : "bob@gmail.com",
+	"to" : "tom@gmail.com",
+	"message" : "Goodbye Tom"
+}
