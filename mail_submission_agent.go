@@ -25,6 +25,28 @@ type User struct {
 
 var mailSubmissionAgent map[string]User
 
+// Helper function to return the correct box specified with the API request
+func getBox(box string, account User) map[string]Email {
+	if box == "inbox" {
+		return account.Inbox
+	} else if box == "outbox" {
+		return account.Outbox
+	} else {
+		return nil
+	}
+}
+
+/*
+// Helper function to return the correct box specified with the API request
+func getBox(box string, account User) map[string]Email {
+	if box == "inbox" {
+		return account.Inbox
+	} else {
+		return account.Outbox
+	}
+}
+*/
+
 // List emails in a user's inbox or outbox
 func List(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -33,15 +55,7 @@ func List(w http.ResponseWriter, r *http.Request) {
 
 	if account, ok := mailSubmissionAgent[user]; ok { // Does the user exist?
 
-		if box == "inbox" || box == "outbox" { // Has the box been specified?
-
-			var chosenbox map[string]Email // Removes the necesity to duplicate fucntions for both the inbox and outbox
-
-			if box == "inbox" {
-				chosenbox = account.Inbox
-			} else {
-				chosenbox = account.Outbox
-			}
+		if chosenbox := getBox(box, account); chosenbox != nil { // Has the box been specified?
 
 			// Obtain all the messages
 			var emailMessages = make(map[string]string)
@@ -100,18 +114,9 @@ func Read(w http.ResponseWriter, r *http.Request) {
 	// If the user in question does exist
 	if account, ok := mailSubmissionAgent[user]; ok {
 		// Has the type of box been specified?
-		if box == "inbox" || box == "outbox" {
-
-			var chosenbox map[string]Email // Removes the necesity to duplicate fucntions for both the inbox and outbox
-
-			if box == "inbox" {
-				chosenbox = account.Inbox
-			} else {
-				chosenbox = account.Outbox
-			}
-			// If the email in question does exist //PROBLEM: Replace line below if everything else works
-			if _, ok := chosenbox[uuid]; ok {
-				email := chosenbox[uuid]
+		if chosenbox := getBox(box, account); chosenbox != nil {
+			// If the email in question does exist
+			if email, ok := chosenbox[uuid]; ok {
 				// If there are no errors converting it to JSON
 				if enc, err := json.Marshal(email); err == nil {
 					w.WriteHeader(http.StatusOK)
@@ -144,14 +149,7 @@ func Delete(w http.ResponseWriter, r *http.Request) {
 	if account, ok := mailSubmissionAgent[user]; ok {
 
 		// Has the type of box been specified?
-		if box == "inbox" || box == "outbox" {
-
-			var chosenbox map[string]Email // Removes the necesity to duplicate fucntions for both the inbox and outbox
-			if box == "inbox" {
-				chosenbox = account.Inbox
-			} else {
-				chosenbox = account.Outbox
-			}
+		if chosenbox := getBox(box, account); chosenbox != nil { // Has the box been specified?
 			// If the email in question does exist
 			if _, ok := chosenbox[uuid]; ok {
 				w.WriteHeader(http.StatusNoContent) // It all worked, but I have nothing else to say
