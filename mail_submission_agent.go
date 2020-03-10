@@ -10,24 +10,29 @@ import (
 	"github.com/gorilla/mux" // A request router and dispatcher for matching incoming requests against a list of registered routes
 )
 
-type Email struct { // Type is used to refer to the struct afterwards
+// An email is made out of these constituents
+type Email struct {
 	From    string
 	To      string
 	Message string
 }
 
-type Emails map[string]Email
+// Each user has an inbox and an outbox.
+type User struct {
+	Inbox  map[string]Email // An inbox is a map of all emails inside it
+	Outbox map[string]Email // An outbox is also a map of all emails inside it
+}
 
-//var emails map[string]Email // ONE EMAIL PER USER
+type Outbox map[string]Email
 
-var outbox map[string]Emails
+var MailSubmissionAgent map[string]Outbox
 
-// List emails from a user's outbox
+// List emails in a user's inbox or outbox
 func List(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	user := vars["user"]
 
-	if emails, ok := outbox[user]; ok {
+	if emails, ok := MailSubmissionAgent[user]; ok {
 
 		// Obtain all the messages in the outbox of a specific user
 		var emailMessages = make(map[string]string)
@@ -46,7 +51,7 @@ func List(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Create email and add it to the user's outbox
+// Create email and add it to the user's inbox or outbox
 func Create(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	user := vars["user"]
@@ -58,12 +63,12 @@ func Create(w http.ResponseWriter, r *http.Request) {
 		if err := decoder.Decode(&email); err == nil { //If no errors in decoding the message into the email object
 
 			// If user has not been created, create them
-			if outbox[user] == nil {
-				outbox[user] = make(map[string]Email)
+			if MailSubmissionAgent[user] == nil {
+				MailSubmissionAgent[user] = make(map[string]Email)
 			}
 
 			w.WriteHeader(http.StatusCreated)
-			outbox[user][uuid.String()] = email
+			MailSubmissionAgent[user][uuid.String()] = email
 		} else {
 			w.WriteHeader(http.StatusBadRequest) // If there is an error with the JSON, send back a bad status request
 		}
@@ -73,18 +78,18 @@ func Create(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Read a particular email from the outbox
+// Read a particular email from the inbox or outbox
 func Read(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	user := vars["user"]
 	uuid := vars["uuid"]
 
 	// If the user in question does exist
-	if _, ok := outbox[user]; ok {
+	if _, ok := MailSubmissionAgent[user]; ok {
 
 		// If the email in question does exist
-		if _, ok := outbox[user][uuid]; ok {
-			email := outbox[user][uuid]
+		if _, ok := MailSubmissionAgent[user][uuid]; ok {
+			email := MailSubmissionAgent[user][uuid]
 			if enc, err := json.Marshal(email); err == nil { // If you have an error converting it to JSON
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(enc)) // Write the output onto the response
@@ -109,12 +114,12 @@ func Delete(w http.ResponseWriter, r *http.Request) {
 	uuid := vars["uuid"]
 
 	// If the user in question does exist
-	if _, ok := outbox[user]; ok {
+	if _, ok := MailSubmissionAgent[user]; ok {
 
 		// If the email in question does exist
-		if _, ok := outbox[user][uuid]; ok {
+		if _, ok := MailSubmissionAgent[user][uuid]; ok {
 			w.WriteHeader(http.StatusNoContent) // It all worked, but I have nothing else to say
-			delete(outbox[user], uuid)
+			delete(MailSubmissionAgent[user], uuid)
 
 		} else {
 			// Cannot find the email
@@ -128,14 +133,17 @@ func Delete(w http.ResponseWriter, r *http.Request) {
 
 func handleRequests() {
 	router := mux.NewRouter().StrictSlash(true)
-	router.HandleFunc("/outbox/{user}/{uuid}", Delete).Methods("DELETE")
-	router.HandleFunc("/outbox/{user}/{uuid}", Read).Methods("GET")
-	router.HandleFunc("/outbox/{user}", List).Methods("GET")
-	router.HandleFunc("/outbox/{user}", Create).Methods("POST")
+	router.HandleFunc("/mailsubmissionagent/{user}", Create).Methods("POST")
+	router.HandleFunc("/mailsubmissionagent/{user}", List).Methods("GET")
+	router.HandleFunc("/mailsubmissionagent/{user}/{uuid}", Read).Methods("GET")
+	router.HandleFunc("/mailsubmissionagent/{user}/{uuid}", Delete).Methods("DELETE")
+	// router.HandleFunc("/mailsubmissionagent/{user}/{box}", List).Methods("GET")
+	// router.HandleFunc("/mailsubmissionagent/{user}/{box}/{uuid}", Read).Methods("GET")
+	// router.HandleFunc("/mailsubmissionagent/{user}/{box}/{uuid}", Delete).Methods("DELETE")
 	log.Fatal(http.ListenAndServe(":4000", router))
 }
 
 func main() {
-	outbox = make(map[string]Emails)
+	MailSubmissionAgent = make(map[string]Outbox)
 	handleRequests()
 }
