@@ -26,7 +26,7 @@ var sentEmails []Email
 
 func DeleteRequest(emailUuid string, user string) error {
 
-	url := "http://localhost:4000/MSA/" + user + "/outbox/" + emailUuid
+	url := "http://localhost:8000/MSA/" + user + "/outbox/" + emailUuid
 	client := &http.Client{}
 
 	if req, createRequestErr := http.NewRequest("DELETE", url, nil); createRequestErr == nil {
@@ -51,7 +51,7 @@ func DeleteRequest(emailUuid string, user string) error {
 
  */
 func ReadRequest(emailUuid string, user string) (Email, error) {
-	url := "http://localhost:4000/MSA/" + user + "/outbox/" + emailUuid
+	url := "http://localhost:8000/MSA/" + user + "/outbox/" + emailUuid
 	client := &http.Client{}
 	var email Email
 	if req, createRequestErr := http.NewRequest("GET", url, nil); createRequestErr == nil {
@@ -82,7 +82,7 @@ func ReadRequest(emailUuid string, user string) (Email, error) {
 Make a List request to the Mail Submission Agent, storing each email ID for reference
 */
 func ListRequest(user string) ([]string, error) {
-	url := "http://localhost:4000/MSA/" + user + "/outbox/"
+	url := "http://localhost:8000/MSA/" + user + "/outbox/"
 	client := &http.Client{}
 	var emailKeys []string
 
@@ -143,7 +143,7 @@ func SendToMTAServer(email Email, address string) error {
 }
 
 func ObtainAllUsers() ([]string, error) {
-	url := "http://localhost:4000/MSA"
+	url := "http://localhost:8000/MSA"
 	client := &http.Client{}
 	var allUsers []string
 
@@ -216,7 +216,7 @@ func PostToMSA(w http.ResponseWriter, r *http.Request) {
 	if err := decoder.Decode(&email); err == nil {
 
 		receivingUser := email.To
-		url := "http://localhost:4000/MSA/" + receivingUser + "/inbox"
+		url := "http://localhost:8000/MSA/" + receivingUser + "/inbox"
 		client := &http.Client{}
 
 		// Convert back to JSON
@@ -292,7 +292,7 @@ func batchMove() {
 func handleRequests() {
 	router := mux.NewRouter().StrictSlash(true)
 	router.HandleFunc("/MTA", PostToMSA).Methods("POST")
-	log.Fatal(http.ListenAndServe(":4001", router))
+	log.Fatal(http.ListenAndServe(":8001", router))
 }
 
 func main() {

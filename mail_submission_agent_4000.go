@@ -17,16 +17,20 @@ type Email struct {
 	Message string
 }
 
-// Each user has an inbox and an outbox.
+// Each user has an inbox and an outbox, which are the storage containers for emails
 type User struct {
-	Inbox  map[string]Email // An inbox is a map of all emails inside it
-	Outbox map[string]Email // An outbox is also a map of all emails inside it
+	Inbox  map[string]Email
+	Outbox map[string]Email
 }
 
-var mailSubmissionAgent map[string]User
-var serverName string
+// Used to keep account of who is on the server
+var userList []string
 
-// Helper function to return the correct box specified with the API request
+var mailSubmissionAgent map[string]User
+
+/*
+Helper function that returns the box specified with an API request
+*/
 func getBox(box string, account User) map[string]Email {
 	if box == "inbox" {
 		return account.Inbox
@@ -37,37 +41,56 @@ func getBox(box string, account User) map[string]Email {
 	}
 }
 
-// List emails in a user's inbox or outbox
+func GetUsers(w http.ResponseWriter, r *http.Request) {
+	// Convert key array to JSON
+	if enc, err := json.Marshal(userList); err == nil {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(enc))
+	} else {
+		// JSON conversion error
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+
+}
+
+/*
+Function lists all of the IDs for emails stored in a user's inbox or a user's outbox
+*/
 func List(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	user := vars["user"]
 	box := vars["box"]
 
-	if account, ok := mailSubmissionAgent[user]; ok { // Does the user exist?
-
-		if chosenbox := getBox(box, account); chosenbox != nil { // Has the box been specified?
-
+	// Check if user exists
+	if account, ok := mailSubmissionAgent[user]; ok {
+		// Check if box is specified
+		if chosenbox := getBox(box, account); chosenbox != nil {
+			// Get all email IDs in the specified inbox or outbox
 			keys := []string{}
 			for emailUuid, _ := range chosenbox {
 				keys = append(keys, emailUuid)
 			}
-
-			if enc, err := json.Marshal(keys); err == nil { // If you have an error converting it to JSON
+			// Convert key array to JSON
+			if enc, err := json.Marshal(keys); err == nil {
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(enc))
 			} else {
+				// JSON conversion error
 				w.WriteHeader(http.StatusInternalServerError)
 			}
-
 		} else {
-			w.WriteHeader(http.StatusBadRequest) // Must state whether targeting the inbox or outbox
+			// Must state whether targeting the inbox or outbox
+			w.WriteHeader(http.StatusBadRequest)
 		}
 	} else {
-		w.WriteHeader(http.StatusNotFound) // User does not exist
+		// User does not exist
+		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
-// Create email and add it to the user's outbox
+/*
+Function creates an email based on the body of the request and the user and outbox specified
+*/
 func Create(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	user := vars["user"]
@@ -77,22 +100,22 @@ func Create(w http.ResponseWriter, r *http.Request) {
 
 	// UUID to uniquely identify an email
 	if uuid, err := uuid.NewUUID(); err == nil {
-
-		// Does the user exist?
+		// Check if user exists
 		if mailSubmissionAgent[user].Inbox == nil || mailSubmissionAgent[user].Outbox == nil {
-			// If not, create them
+			// If not, create them and then store the new user in the list
 			mailSubmissionAgent[user] = User{Inbox: make(map[string]Email), Outbox: make(map[string]Email)}
+			userList = append(userList, user)
 		}
 		account := mailSubmissionAgent[user]
-
-		if chosenbox := getBox(box, account); chosenbox != nil { // Has the box been specified?
-
-			if err := decoder.Decode(&email); err == nil { //If no errors in decoding the message into the email object
-
+		// Check if box is specified
+		if chosenbox := getBox(box, account); chosenbox != nil {
+			// Try to decode the response into the email structure
+			if err := decoder.Decode(&email); err == nil {
 				w.WriteHeader(http.StatusCreated)
 				chosenbox[uuid.String()] = email
 			} else {
-				w.WriteHeader(http.StatusBadRequest) // If there is an error with the JSON, send back a bad status request
+				// JSON conversion error
+				w.WriteHeader(http.StatusBadRequest)
 			}
 		} else {
 			// Must state whether targeting the inbox or outbox
@@ -104,20 +127,22 @@ func Create(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Read a particular email from the inbox or outbox
+/*
+Function reads a specific email from either the inbox or outbox by looking up the email ID specified
+*/
 func Read(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	user := vars["user"]
 	box := vars["box"]
 	uuid := vars["uuid"]
 
-	// If the user in question does exist
+	// Check if user exists
 	if account, ok := mailSubmissionAgent[user]; ok {
-		// Has the type of box been specified?
+		// Check if box is specified
 		if chosenbox := getBox(box, account); chosenbox != nil {
 			// If the email in question does exist
 			if email, ok := chosenbox[uuid]; ok {
-				// If there are no errors converting it to JSON
+				// Convert email to JSON
 				if enc, err := json.Marshal(email); err == nil {
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(enc)) // Write the output onto the response
@@ -133,22 +158,23 @@ func Read(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 		}
 	} else {
-		// Cannot find the user
+		// User does not exist
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
-// Delete a particular email from the outbox
+/*
+Function deletes a specific email from either the inbox or outbox by looking up the email ID specified
+*/
 func Delete(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	user := vars["user"]
 	box := vars["box"]
 	uuid := vars["uuid"]
 
-	// If the user in question does exist
+	// Check if user exists
 	if account, ok := mailSubmissionAgent[user]; ok {
-
-		// Has the type of box been specified?
+		// Check if box is specified
 		if chosenbox := getBox(box, account); chosenbox != nil { // Has the box been specified?
 			// If the email in question does exist
 			if _, ok := chosenbox[uuid]; ok {
@@ -168,18 +194,20 @@ func Delete(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+/*
+Function handles all potential routes specified within the Mail Submission Agent
+*/
 func handleRequests() {
 	router := mux.NewRouter().StrictSlash(true)
 	router.HandleFunc("/MSA/{user}/{box}", Create).Methods("POST")
 	router.HandleFunc("/MSA/{user}/{box}", List).Methods("GET")
 	router.HandleFunc("/MSA/{user}/{box}/{uuid}", Read).Methods("GET")
 	router.HandleFunc("/MSA/{user}/{box}/{uuid}", Delete).Methods("DELETE")
+	router.HandleFunc("/MSA", GetUsers).Methods("GET")
 	log.Fatal(http.ListenAndServe(":4000", router))
 }
 
 func main() {
 	mailSubmissionAgent = make(map[string]User)
-	serverName = "here.com"
-
 	handleRequests()
 }
