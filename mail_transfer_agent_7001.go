@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/gorilla/mux"
 )
 
 // An email is made out of these constituents
@@ -18,39 +21,13 @@ type Email struct {
 	Message string
 }
 
-// var emails []Email
-// var emailKeys []string
+var userMTA string
 
-/*
-func DeleteRequest(port int64, reqType string) {
-	local := "http://localhost:"
-	baseURL := local + strconv.FormatInt(port, 10) + "/mailsubmissionagent/Alice/outbox"
-	client := &http.Client{}
-
-}
-*/
-/*
-func MakeRequest(port int64, reqType string, emailUuid string, reqName string) (*Response, error) {
-	local := "http://localhost:"
-	baseURL := local + strconv.FormatInt(port, 10) + "/mailsubmissionagent/Alice/outbox" + emailUuid
-	client := &http.Client{}
-
-	if req, createRequestErr := http.NewRequest(reqType, baseURL, nil); createRequestErr == nil {
-
-		if resp, sendRequestErr := client.Do(req); sendRequestErr == nil {
-			return resp, nil
-		} else {
-			return nil, (reqName + " failed with" + sendRequestErr.Error() + "\n")
-		}
-	} else {
-		return nil, errors.New(reqName + " failed with" + createRequestErr.Error() + "\n")
-	}
-
-}
-*/
+var sentEmails []Email
 
 func DeleteRequest(emailUuid string) error {
-	url := "http://localhost:4000/MSA/Alice/outbox/" + emailUuid
+
+	url := "http://localhost:7000/MSA/" + userMTA + "/outbox/" + emailUuid
 	client := &http.Client{}
 
 	if req, createRequestErr := http.NewRequest("DELETE", url, nil); createRequestErr == nil {
@@ -75,7 +52,7 @@ func DeleteRequest(emailUuid string) error {
 
  */
 func ReadRequest(emailUuid string) (Email, error) {
-	url := "http://localhost:4000/MSA/Alice/outbox/" + emailUuid
+	url := "http://localhost:7000/MSA/" + userMTA + "/outbox/" + emailUuid
 	client := &http.Client{}
 	var email Email
 	if req, createRequestErr := http.NewRequest("GET", url, nil); createRequestErr == nil {
@@ -106,7 +83,7 @@ func ReadRequest(emailUuid string) (Email, error) {
 Make a List request to the Mail Submission Agent, storing each email ID for reference
 */
 func ListRequest() ([]string, error) {
-	url := "http://localhost:4000/MSA/Alice/outbox"
+	url := "http://localhost:7000/MSA/" + userMTA + "/outbox/"
 	client := &http.Client{}
 	var emailKeys []string
 
@@ -136,12 +113,55 @@ func ListRequest() ([]string, error) {
 }
 
 /*
-Make a post request, moving the
+
+ */
+func PostToMSA(w http.ResponseWriter, r *http.Request) {
+
+	decoder := json.NewDecoder(r.Body)
+	var email Email
+
+	//If no errors in decoding the message into the email object
+	if err := decoder.Decode(&email); err == nil {
+
+		receivingUser := email.To
+		url := "http://localhost:7000/MSA/" + receivingUser + "/inbox"
+		client := &http.Client{}
+
+		// Convert back to JSON
+		if enc, jsonConversionErr := json.Marshal(email); jsonConversionErr == nil {
+
+			if req, createRequestErr := http.NewRequest("POST", url, bytes.NewBuffer(enc)); createRequestErr == nil {
+
+				if resp, sendRequestErr := client.Do(req); sendRequestErr == nil {
+
+					if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+
+						w.WriteHeader(http.StatusOK)
+
+					} else {
+						w.WriteHeader(http.StatusInternalServerError)
+					}
+				} else {
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+			} else {
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+}
+
+/*
+Send an email to another mail transfer agent on another servers
 */
-func PostRequest(email Email) error {
-	url := "http://localhost:4000/MSA/Alice/inbox"
+func SendToMTAServer(email Email) error {
+	url := "http://localhost:4001/MTA"
 	client := &http.Client{}
-	// Can we convert it to JSON?
+
 	if enc, jsonConversionErr := json.Marshal(email); jsonConversionErr == nil {
 
 		if req, createRequestErr := http.NewRequest("POST", url, bytes.NewBuffer(enc)); createRequestErr == nil {
@@ -151,6 +171,7 @@ func PostRequest(email Email) error {
 				if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
 
 					return nil
+
 				} else {
 					return errors.New(strconv.Itoa(resp.StatusCode) + ": " + string(http.StatusText(resp.StatusCode)))
 				}
@@ -165,32 +186,30 @@ func PostRequest(email Email) error {
 	}
 }
 
-/*
 func handleRequests() {
 	router := mux.NewRouter().StrictSlash(true)
-	//router.HandleFunc("/mailtransferagent/{user}/{box}", Create).Methods("POST")
-	router.HandleFunc("/MTA/{user}/{box}", List).Methods("GET")
-	router.HandleFunc("/MTA/{user}/{box}/{uuid}", Read).Methods("GET")
-	//router.HandleFunc("/mailsubmissionagent/{user}/{box}/{uuid}", Delete).Methods("DELETE")
-	log.Fatal(http.ListenAndServe(":4001", router))
+	router.HandleFunc("/MTA", PostToMSA).Methods("POST")
+	log.Fatal(http.ListenAndServe(":7001", router))
 }
-*/
+
 func main() {
-	batchMove()
+	userMTA = "bob@there.com"
+	go batchMove()
+	handleRequests()
 
 }
 
 func batchMove() {
+
 	for true {
-		// var abc Email
-		//emailsToTransfer := []string{}
+
 		if emailList, listErr := ListRequest(); listErr == nil {
 
 			for i := 0; i < len(emailList); i++ {
 
 				if email, readErr := ReadRequest(emailList[i]); readErr == nil {
 
-					if postError := PostRequest(email); postError == nil {
+					if sendError := SendToMTAServer(email); sendError == nil {
 
 						if deleteErr := DeleteRequest(emailList[i]); deleteErr == nil {
 							// Success
@@ -198,53 +217,15 @@ func batchMove() {
 							fmt.Println("Delete failed due to: " + deleteErr.Error())
 						}
 					} else {
-						fmt.Println("Post failed due to " + postError.Error())
+						fmt.Println("Post failed due to " + sendError.Error())
 					}
 				} else {
 					fmt.Println("Read failed due to " + readErr.Error())
 				}
 			}
 		} else {
-			fmt.Println("List failed due to " + listErr.Error())
+			// Nothing. User might not have been instanciated yet
 		}
 		time.Sleep(7 * time.Second)
 	}
 }
-
-/*
-func sendToInbox() {
-	emailsToTransfer := []string{}
-	if emailList, listErr := ListRequest(4000, "GET"); listErr == nil {
-		for i := 0; i < len(emailList); i++ {
-
-			if email, readErr := ReadRequest(4000, "GET", emailList[i]); readErr == nil {
-				emailsToTransfer = append(emailsToTransfer, email)
-
-				if deleteErr := DeleteRequest(4000, "DELETE", emailList[i]); deleteErr == nil {
-					fmt.Println("Delte successful")
-				} else {
-					fmt.Println("Delete failed due to: " + deleteErr.Error())
-				}
-				fmt.Println(email)
-			} else {
-				fmt.Println("Read failed due to: " + readErr.Error())
-			}
-		}
-	} else {
-		fmt.Println("List failed due to: " + listErr.Error())
-	}
-}
-*/
-/*
-func main() {
-	for true {
-		var emailList []string
-		fmt.Println("Before")
-		fmt.Println(emailList)
-		emailList = append(emailList, "hello")
-		fmt.Println("After")
-		fmt.Println(emailList)
-		time.Sleep(1 * time.Second)
-	}
-}
-*/
