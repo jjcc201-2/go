@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -113,6 +114,68 @@ func ListRequest() ([]string, error) {
 }
 
 /*
+Send an email to another mail transfer agent on another servers
+*/
+func SendToMTAServer(email Email, address string) error {
+	url := "http://localhost" + address + "/MTA"
+	client := &http.Client{}
+
+	if enc, jsonConversionErr := json.Marshal(email); jsonConversionErr == nil {
+
+		if req, createRequestErr := http.NewRequest("POST", url, bytes.NewBuffer(enc)); createRequestErr == nil {
+
+			if resp, sendRequestErr := client.Do(req); sendRequestErr == nil {
+
+				if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+
+					return nil
+
+				} else {
+					return errors.New(strconv.Itoa(resp.StatusCode) + ": " + string(http.StatusText(resp.StatusCode)))
+				}
+			} else {
+				return errors.New(sendRequestErr.Error())
+			}
+		} else {
+			return errors.New(createRequestErr.Error())
+		}
+	} else {
+		return errors.New(jsonConversionErr.Error())
+	}
+}
+
+func ObtainBluebookAddress(domain string) (string, error) {
+	url := "http://localhost:3000/bluebook/" + domain
+	client := &http.Client{}
+	var address string
+	if req, createRequestErr := http.NewRequest("GET", url, nil); createRequestErr == nil {
+
+		if resp, sendRequestErr := client.Do(req); sendRequestErr == nil {
+
+			if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+
+				decoder := json.NewDecoder(resp.Body)
+
+				if err := decoder.Decode(&address); err == nil {
+					fmt.Println("Here We Go")
+					fmt.Println(address)
+					return address, nil
+				} else {
+					return "", errors.New(err.Error())
+				}
+			} else {
+				return "", errors.New(strconv.Itoa(resp.StatusCode) + ": " + string(http.StatusText(resp.StatusCode)))
+			}
+		} else {
+			return "", errors.New(sendRequestErr.Error())
+		}
+	} else {
+		return "", errors.New(createRequestErr.Error())
+	}
+
+}
+
+/*
 
  */
 func PostToMSA(w http.ResponseWriter, r *http.Request) {
@@ -155,34 +218,41 @@ func PostToMSA(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-/*
-Send an email to another mail transfer agent on another servers
-*/
-func SendToMTAServer(email Email) error {
-	url := "http://localhost:7001/MTA"
-	client := &http.Client{}
-	fmt.Println("Sending to " + url)
-	if enc, jsonConversionErr := json.Marshal(email); jsonConversionErr == nil {
+func batchMove() {
+	for {
+		if emailList, listErr := ListRequest(); listErr == nil {
 
-		if req, createRequestErr := http.NewRequest("POST", url, bytes.NewBuffer(enc)); createRequestErr == nil {
+			for i := 0; i < len(emailList); i++ {
 
-			if resp, sendRequestErr := client.Do(req); sendRequestErr == nil {
+				if email, readErr := ReadRequest(emailList[i]); readErr == nil {
 
-				if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
-					fmt.Println("Successful send to " + url)
-					return nil
+					// Get the domain name
+					split := strings.Split(email.To, "@")
+					_, domain := split[0], split[1]
 
+					if address, addressError := ObtainBluebookAddress(domain); addressError == nil {
+
+						if sendError := SendToMTAServer(email, address); sendError == nil {
+
+							if deleteErr := DeleteRequest(emailList[i]); deleteErr == nil {
+								// Success
+							} else {
+								fmt.Println("Delete failed due to: " + deleteErr.Error())
+							}
+						} else {
+							fmt.Println("Post failed due to " + sendError.Error())
+						}
+					} else {
+						fmt.Println("Could not obtain address due to " + addressError.Error())
+					}
 				} else {
-					return errors.New(strconv.Itoa(resp.StatusCode) + ": " + string(http.StatusText(resp.StatusCode)))
+					fmt.Println("Read failed due to " + readErr.Error())
 				}
-			} else {
-				return errors.New(sendRequestErr.Error())
 			}
 		} else {
-			return errors.New(createRequestErr.Error())
+			// Nothing. User might not have been instanciated yet
 		}
-	} else {
-		return errors.New(jsonConversionErr.Error())
+		time.Sleep(7 * time.Second)
 	}
 }
 
@@ -197,33 +267,4 @@ func main() {
 	go batchMove()
 	handleRequests()
 
-}
-
-func batchMove() {
-	for {
-		if emailList, listErr := ListRequest(); listErr == nil {
-
-			for i := 0; i < len(emailList); i++ {
-
-				if email, readErr := ReadRequest(emailList[i]); readErr == nil {
-
-					if sendError := SendToMTAServer(email); sendError == nil {
-
-						if deleteErr := DeleteRequest(emailList[i]); deleteErr == nil {
-							// Success
-						} else {
-							fmt.Println("Delete failed due to: " + deleteErr.Error())
-						}
-					} else {
-						fmt.Println("Post failed due to " + sendError.Error())
-					}
-				} else {
-					fmt.Println("Read failed due to " + readErr.Error())
-				}
-			}
-		} else {
-			// Nothing. User might not have been instanciated yet
-		}
-		time.Sleep(7 * time.Second)
-	}
 }

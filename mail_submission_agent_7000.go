@@ -25,6 +25,8 @@ type User struct {
 
 var mailSubmissionAgent map[string]User
 
+// var serverName string
+
 // Helper function to return the correct box specified with the API request
 func getBox(box string, account User) map[string]Email {
 	if box == "inbox" {
